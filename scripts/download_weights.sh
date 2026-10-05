@@ -6,7 +6,7 @@
 #   bash scripts/download_weights.sh --tag v2.0.0
 #   bash scripts/download_weights.sh --output-dir weights/
 
-set -e
+set -euo pipefail
 
 REPO="alexjunholee/LC2_crossmatching"
 TAG="v2.0.0"
@@ -43,21 +43,36 @@ WEIGHTS=(
 echo "Downloading LC2 pretrained weights from $REPO (tag: $TAG)..."
 
 for w in "${WEIGHTS[@]}"; do
-    if [[ -f "$WEIGHTS_DIR/$w" ]]; then
+    if [[ -s "$WEIGHTS_DIR/$w" ]]; then
         echo "  Skipping $w (already exists)"
         continue
     fi
     echo "  Downloading $w..."
+    remote_w="$w"
     if command -v gh &> /dev/null; then
-        gh release download "$TAG" -R "$REPO" -p "$w" -D "$WEIGHTS_DIR" --clobber
+        # Releases can assign the descriptive filename as the asset label.
+        remote_w=$(gh release view "$TAG" -R "$REPO" --json assets \
+            --jq ".assets[] | select(.name == \"$w\" or .label == \"$w\") | .name")
+        if [[ -z "$remote_w" || "$remote_w" == *$'\n'* ]]; then
+            echo "Error: no unique release asset named or labelled $w" >&2
+            exit 1
+        fi
+        gh release download "$TAG" -R "$REPO" -p "$remote_w" -O "$WEIGHTS_DIR/$w.part" --clobber
     elif command -v curl &> /dev/null; then
-        curl -L "https://github.com/$REPO/releases/download/$TAG/$w" -o "$WEIGHTS_DIR/$w"
+        if [[ "$TAG" == "v2.0.0" && "$w" == "lc2_kitti360_multi.pth.tar" ]]; then
+            remote_w="best.pth.tar"
+        fi
+        curl --fail --location --retry 3 "https://github.com/$REPO/releases/download/$TAG/$remote_w" -o "$WEIGHTS_DIR/$w.part"
     elif command -v wget &> /dev/null; then
-        wget "https://github.com/$REPO/releases/download/$TAG/$w" -O "$WEIGHTS_DIR/$w"
+        if [[ "$TAG" == "v2.0.0" && "$w" == "lc2_kitti360_multi.pth.tar" ]]; then
+            remote_w="best.pth.tar"
+        fi
+        wget "https://github.com/$REPO/releases/download/$TAG/$remote_w" -O "$WEIGHTS_DIR/$w.part"
     else
         echo "Error: No download tool found. Install gh, curl, or wget."
         exit 1
     fi
+    mv "$WEIGHTS_DIR/$w.part" "$WEIGHTS_DIR/$w"
 done
 
 echo ""

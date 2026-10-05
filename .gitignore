@@ -10,6 +10,7 @@ build/
 cache/
 checkpoints/
 pretrained/*.pth.tar
+pretrained/
 results/
 logs/
 
